@@ -320,20 +320,27 @@ class ClientWindow(QtWidgets.QMainWindow):
             self.setPalette(self.style().standardPalette())
 
     def show_history(self):
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Historique")
-        layout = QtWidgets.QVBoxLayout(dialog)
-        list_widget = QtWidgets.QListWidget(dialog)
-        for i, code in enumerate(self.code_history):
-            list_widget.addItem(f"Code #{i+1} : {code[:30].replace('\n',' ')}...")
-        layout.addWidget(list_widget)
-        buttonBox = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok|QtWidgets.QDialogButtonBox.StandardButton.Cancel)
-        layout.addWidget(buttonBox)
-        buttonBox.accepted.connect(dialog.accept)
-        buttonBox.rejected.connect(dialog.reject)
-        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            if list_widget.currentRow() >= 0:
-                self.code_editor.setPlainText(self.code_history[list_widget.currentRow()])
+     dialog = QtWidgets.QDialog(self)
+     dialog.setWindowTitle("Historique")
+     layout = QtWidgets.QVBoxLayout(dialog)
+
+     list_widget = QtWidgets.QListWidget(dialog)
+     for i, code in enumerate(self.code_history):
+        processed_code = code[:30].replace('\n', ' ')
+        list_widget.addItem(f"Code #{i+1} : {processed_code}...")
+     layout.addWidget(list_widget)
+
+     buttonBox = QtWidgets.QDialogButtonBox(
+        QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+    )
+     layout.addWidget(buttonBox)
+     buttonBox.accepted.connect(dialog.accept)
+     buttonBox.rejected.connect(dialog.reject)
+
+     if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+        if list_widget.currentRow() >= 0:
+            self.code_editor.setPlainText(self.code_history[list_widget.currentRow()])
+
 
     def open_results_in_window(self):
         dialog = QtWidgets.QDialog(self)
