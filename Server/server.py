@@ -5,9 +5,9 @@ import os
 import tempfile
 from queue import Queue
 from flask import Flask, render_template
-import psutil  # Pour surveiller la charge CPU et mémoire
+import psutil
 
-# Configuration du serveur
+# Configuration du serveur maître
 HOST = '127.0.0.1'
 PORT = 5000
 MAX_TASKS_LOCAL = 2
@@ -49,9 +49,11 @@ def start_monitoring_interface():
     app.run(host="0.0.0.0", port=8080)
 
 def handle_client(conn, addr):
-    """Gère les connexions clients et les tâches."""
+    """Gère les connexions clients et traite les tâches."""
     try:
+        print(f"[INFO] Connexion établie avec {addr}")
         server_status["clients_connected"] += 1
+        print(f"[INFO] Clients connectés : {server_status['clients_connected']}")
 
         language_line = read_line(conn)
         if not language_line:
@@ -67,7 +69,6 @@ def handle_client(conn, addr):
         if code is None:
             return
 
-        # Critère de délégation
         if task_queue.qsize() >= MAX_TASKS_LOCAL and SLAVES:
             result = delegate_to_slave(language, code)
         else:
@@ -82,23 +83,37 @@ def handle_client(conn, addr):
         print(f"[ERREUR maître] {e}")
     finally:
         server_status["clients_connected"] -= 1
+        print(f"[INFO] Connexion fermée. Clients connectés : {server_status['clients_connected']}")
         conn.close()
 
 def delegate_to_slave(language, code):
+    """Délègue une tâche à un serveur esclave."""
     ip, port = SLAVES[0]
-    return run_on_slave(ip, port, language, code)
-
-def run_on_slave(ip, port, language, code):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((ip, port))
-    header = language + "\n" + str(len(code)) + "\n"
-    s.sendall(header.encode('utf-8'))
-    s.sendall(code.encode('utf-8'))
-    result = receive_all(s)
-    s.close()
+    print(f"[INFO] Délégation au serveur esclave : {ip}:{port}")
+    result = run_on_slave(ip, port, language, code)
+    print(f"[INFO] Réponse reçue de l'esclave : {result}")
     return result
 
+def run_on_slave(ip, port, language, code):
+    """Exécute une tâche sur un esclave."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((ip, port))
+        header = f"{language}\n{len(code)}\n"
+        print(f"[DEBUG] Envoi de l'en-tête : {header.strip()}")
+        s.sendall(header.encode('utf-8'))
+        print(f"[DEBUG] Envoi du code : {code.strip()}")
+        s.sendall(code.encode('utf-8'))
+        result = receive_all(s)
+        print(f"[DEBUG] Résultat reçu de l'esclave : {result.strip()}")
+        s.close()
+        return result
+    except Exception as e:
+        print(f"[ERREUR] Impossible de communiquer avec l'esclave : {e}")
+        return f"Erreur de communication avec l'esclave : {e}"
+
 def execute_code(language, code):
+    """Exécute le code localement."""
     with tempfile.NamedTemporaryFile(delete=False, suffix=get_extension(language)) as tmp_file:
         tmp_file.write(code.encode('utf-8'))
         tmp_file_path = tmp_file.name
@@ -140,11 +155,13 @@ def execute_code(language, code):
     return output
 
 def run_command(cmd):
+    """Exécute une commande système."""
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = proc.communicate()
     return stdout.decode('utf-8') + stderr.decode('utf-8')
 
 def get_extension(language):
+    """Retourne l'extension de fichier pour le langage donné."""
     return {
         "PYTHON": ".py",
         "C": ".c",
@@ -154,6 +171,7 @@ def get_extension(language):
     }.get(language, ".txt")
 
 def read_line(conn):
+    """Lit une ligne depuis une connexion."""
     data = b""
     while True:
         chunk = conn.recv(1)
@@ -165,16 +183,19 @@ def read_line(conn):
     return data.decode('utf-8')
 
 def receive_fixed_length(conn, length):
+    """Reçoit un message d'une longueur fixe."""
     data = b""
-    while length > 0:
-        chunk = conn.recv(length)
+    remaining = length
+    while remaining > 0:
+        chunk = conn.recv(remaining)
         if not chunk:
             return None
         data += chunk
-        length -= len(chunk)
+        remaining -= len(chunk)
     return data.decode('utf-8')
 
 def receive_all(sock):
+    """Lit tous les octets disponibles depuis une connexion."""
     data = b""
     while True:
         chunk = sock.recv(4096)
@@ -184,6 +205,7 @@ def receive_all(sock):
     return data.decode('utf-8')
 
 def test_connection(ip, port):
+    """Teste la connexion à une adresse IP et un port."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(1)
@@ -194,6 +216,7 @@ def test_connection(ip, port):
         return False
 
 def start_server():
+    """Démarre le serveur maître."""
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
     server_socket.listen(5)
