@@ -1,59 +1,54 @@
+import sys
 import socket
 import threading
 import subprocess
 import os
 import tempfile
 from queue import Queue
-from flask import Flask, render_template
-import psutil
 
-# Configuration du serveur maître
+
+# --------------------
+# Paramètres généraux
+# --------------------
 HOST = '127.0.0.1'
 PORT = 5000
+
+# Pour limiter le nombre de tâches locales
+# Si vous voulez le rendre paramétrable : MAX_TASKS_LOCAL = int(sys.argv[1]) if len(sys.argv) > 1 else 2
 MAX_TASKS_LOCAL = 2
+
+# Liste de serveurs esclaves (IP, PORT)
 SLAVES = [
-    ('127.0.0.1', 6000)
+    ('127.0.0.1', 6000)  # Ajouter d'autres esclaves si nécessaire
 ]
 
+# File d'attente pour gérer les tâches locales
 task_queue = Queue()
 
-# Flask App pour le monitoring
-app = Flask(__name__)
+# Pour suivi basique du nombre de clients connectés
+clients_connected = 0
 
-server_status = {
-    "clients_connected": 0,
-    "tasks_in_queue": 0,
-    "cpu_usage": 0.0,
-    "memory_usage": 0.0,
-    "slaves": [{"ip": slave[0], "port": slave[1], "status": "Unknown"} for slave in SLAVES]
-}
 
-@app.route("/")
-def monitoring_dashboard():
-    """Affiche le tableau de bord du monitoring."""
-    return render_template("dashboard.html", status=server_status)
+def start_server():
+    """Démarre le serveur maître en écoute."""
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((HOST, PORT))
+    server_socket.listen(5)
+    print(f"[INFO] Serveur maître en écoute sur {HOST}:{PORT}")
 
-def update_server_status():
-    """Met à jour périodiquement l'état des ressources."""
     while True:
-        server_status["cpu_usage"] = psutil.cpu_percent(interval=1)
-        server_status["memory_usage"] = psutil.virtual_memory().percent
-        server_status["tasks_in_queue"] = task_queue.qsize()
+        conn, addr = server_socket.accept()
+        thread = threading.Thread(target=handle_client, args=(conn, addr))
+        thread.start()
 
-        # Vérification de l'état des esclaves
-        for slave in server_status["slaves"]:
-            slave["status"] = "Connected" if test_connection(slave["ip"], slave["port"]) else "Disconnected"
-
-def start_monitoring_interface():
-    """Démarre l'interface Flask."""
-    app.run(host="0.0.0.0", port=8080)
 
 def handle_client(conn, addr):
-    """Gère les connexions clients et traite les tâches."""
+    """Gère la connexion client et traite la requête."""
+    global clients_connected
     try:
+        clients_connected += 1
         print(f"[INFO] Connexion établie avec {addr}")
-        server_status["clients_connected"] += 1
-        print(f"[INFO] Clients connectés : {server_status['clients_connected']}")
+        print(f"[INFO] Clients connectés : {clients_connected}")
 
         language_line = read_line(conn)
         if not language_line:
@@ -69,9 +64,11 @@ def handle_client(conn, addr):
         if code is None:
             return
 
+        # Si la file locale est pleine, déléguer à un esclave
         if task_queue.qsize() >= MAX_TASKS_LOCAL and SLAVES:
             result = delegate_to_slave(language, code)
         else:
+            # Exécution locale
             task_queue.put(1)
             try:
                 result = execute_code(language, code)
@@ -79,41 +76,46 @@ def handle_client(conn, addr):
                 task_queue.get()
 
         conn.sendall(result.encode('utf-8'))
+
     except Exception as e:
         print(f"[ERREUR maître] {e}")
     finally:
-        server_status["clients_connected"] -= 1
-        print(f"[INFO] Connexion fermée. Clients connectés : {server_status['clients_connected']}")
+        clients_connected -= 1
+        print(f"[INFO] Connexion fermée avec {addr}. Clients connectés : {clients_connected}")
         conn.close()
 
+
 def delegate_to_slave(language, code):
-    """Délègue une tâche à un serveur esclave."""
+    """Délègue l'exécution du code au premier esclave de la liste."""
+    if not SLAVES:
+        return "Aucun serveur esclave disponible."
+
     ip, port = SLAVES[0]
     print(f"[INFO] Délégation au serveur esclave : {ip}:{port}")
     result = run_on_slave(ip, port, language, code)
     print(f"[INFO] Réponse reçue de l'esclave : {result}")
     return result
 
+
 def run_on_slave(ip, port, language, code):
-    """Exécute une tâche sur un esclave."""
+    """Envoie le code à un serveur esclave et récupère la réponse."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((ip, port))
         header = f"{language}\n{len(code)}\n"
-        print(f"[DEBUG] Envoi de l'en-tête : {header.strip()}")
         s.sendall(header.encode('utf-8'))
-        print(f"[DEBUG] Envoi du code : {code.strip()}")
         s.sendall(code.encode('utf-8'))
+
         result = receive_all(s)
-        print(f"[DEBUG] Résultat reçu de l'esclave : {result.strip()}")
         s.close()
         return result
     except Exception as e:
         print(f"[ERREUR] Impossible de communiquer avec l'esclave : {e}")
         return f"Erreur de communication avec l'esclave : {e}"
 
+
 def execute_code(language, code):
-    """Exécute le code localement."""
+    """Compile/Exécute le code localement selon le langage."""
     with tempfile.NamedTemporaryFile(delete=False, suffix=get_extension(language)) as tmp_file:
         tmp_file.write(code.encode('utf-8'))
         tmp_file_path = tmp_file.name
@@ -141,7 +143,9 @@ def execute_code(language, code):
             c_out = run_command(["javac", src_filename])
             output = c_out if c_out.strip() else run_command(["java", "-cp", dir_name, "Main"])
 
-            os.remove(src_filename)
+            # Nettoyage classes Java
+            if os.path.exists(src_filename):
+                os.remove(src_filename)
             for cf in os.listdir(dir_name):
                 if cf.endswith(".class"):
                     os.remove(os.path.join(dir_name, cf))
@@ -152,16 +156,19 @@ def execute_code(language, code):
     finally:
         if tmp_file_path and os.path.exists(tmp_file_path):
             os.remove(tmp_file_path)
+
     return output
 
+
 def run_command(cmd):
-    """Exécute une commande système."""
+    """Exécute une commande et retourne la sortie standard + erreur standard."""
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = proc.communicate()
     return stdout.decode('utf-8') + stderr.decode('utf-8')
 
+
 def get_extension(language):
-    """Retourne l'extension de fichier pour le langage donné."""
+    """Retourne l'extension de fichier selon le langage."""
     return {
         "PYTHON": ".py",
         "C": ".c",
@@ -170,8 +177,9 @@ def get_extension(language):
         "JAVA": ".java"
     }.get(language, ".txt")
 
+
 def read_line(conn):
-    """Lit une ligne depuis une connexion."""
+    """Lit une ligne (terminée par \n) depuis la socket."""
     data = b""
     while True:
         chunk = conn.recv(1)
@@ -181,6 +189,7 @@ def read_line(conn):
             break
         data += chunk
     return data.decode('utf-8')
+
 
 def receive_fixed_length(conn, length):
     """Reçoit un message d'une longueur fixe."""
@@ -194,8 +203,9 @@ def receive_fixed_length(conn, length):
         remaining -= len(chunk)
     return data.decode('utf-8')
 
+
 def receive_all(sock):
-    """Lit tous les octets disponibles depuis une connexion."""
+    """Lit tous les octets disponibles depuis la socket."""
     data = b""
     while True:
         chunk = sock.recv(4096)
@@ -204,34 +214,6 @@ def receive_all(sock):
         data += chunk
     return data.decode('utf-8')
 
-def test_connection(ip, port):
-    """Teste la connexion à une adresse IP et un port."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(1)
-        s.connect((ip, port))
-        s.close()
-        return True
-    except:
-        return False
-
-def start_server():
-    """Démarre le serveur maître."""
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((HOST, PORT))
-    server_socket.listen(5)
-    print(f"[INFO] Serveur maître en écoute sur {HOST}:{PORT}")
-
-    while True:
-        conn, addr = server_socket.accept()
-        client_thread = threading.Thread(target=handle_client, args=(conn, addr))
-        client_thread.start()
 
 if __name__ == "__main__":
-    monitoring_thread = threading.Thread(target=start_monitoring_interface, daemon=True)
-    monitoring_thread.start()
-
-    resource_thread = threading.Thread(target=update_server_status, daemon=True)
-    resource_thread.start()
-
     start_server()

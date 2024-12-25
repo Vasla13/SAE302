@@ -4,28 +4,53 @@ import subprocess
 import os
 import tempfile
 
+
 HOST = '127.0.0.1'
-PORT = 6000
+PORT = 6000  # Peut être modifié selon le maître
+
+
+def start_slave():
+    """Démarre le serveur esclave."""
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((HOST, PORT))
+    server_socket.listen(5)
+    print(f"[INFO] Serveur esclave en écoute sur {HOST}:{PORT}")
+
+    while True:
+        try:
+            conn, addr = server_socket.accept()
+            thread = threading.Thread(target=handle_task, args=(conn, addr))
+            thread.start()
+        except Exception as e:
+            print(f"[ERREUR] Erreur lors de l'acceptation de connexion : {e}")
+
 
 def handle_task(conn, addr):
-    """Gère les tâches reçues par le serveur esclave."""
+    """Gère une tâche reçue par le serveur esclave."""
     try:
         print(f"[INFO] Connexion reçue de {addr}")
 
-        # Lecture des paramètres
+        # Lecture du langage
         language = read_line(conn).strip()
         print(f"[DEBUG] Langage reçu : {language}")
+
+        # Lecture de la longueur du code
         length_line = read_line(conn)
         code_length = int(length_line.strip())
         print(f"[DEBUG] Longueur du code : {code_length}")
-        code = receive_fixed_length(conn, code_length)
-        print(f"[DEBUG] Code reçu : {code.strip()}")
 
-        # Exécution du code
-        result = execute_code(language, code)
-        print(f"[DEBUG] Résultat de l'exécution : {result.strip()}")
-        conn.sendall(result.encode('utf-8'))
-        print(f"[INFO] Tâche terminée pour {addr}")
+        # Lecture du code
+        code = receive_fixed_length(conn, code_length)
+        if code:
+            print(f"[DEBUG] Code reçu : {code.strip()}")
+
+            # Exécution
+            result = execute_code(language, code)
+            print(f"[DEBUG] Résultat : {result.strip()}")
+
+            # Envoi du résultat au maître
+            conn.sendall(result.encode('utf-8'))
+            print(f"[INFO] Tâche terminée pour {addr}")
 
     except ConnectionResetError:
         print(f"[ERREUR] Connexion fermée par l'hôte distant : {addr}")
@@ -37,6 +62,7 @@ def handle_task(conn, addr):
             print("[ERREUR] Impossible d'envoyer l'erreur au client.")
     finally:
         conn.close()
+
 
 def execute_code(language, code):
     """Exécute le code reçu et renvoie le résultat."""
@@ -67,7 +93,9 @@ def execute_code(language, code):
             c_out = run_command(["javac", src_filename])
             output = c_out if c_out.strip() else run_command(["java", "-cp", dir_name, "Main"])
 
-            os.remove(src_filename)
+            # Nettoyage
+            if os.path.exists(src_filename):
+                os.remove(src_filename)
             for cf in os.listdir(dir_name):
                 if cf.endswith(".class"):
                     os.remove(os.path.join(dir_name, cf))
@@ -80,11 +108,13 @@ def execute_code(language, code):
             os.remove(tmp_file_path)
     return output
 
+
 def run_command(cmd):
-    """Exécute une commande système."""
+    """Exécute une commande système et renvoie stdout + stderr."""
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = proc.communicate()
     return stdout.decode('utf-8') + stderr.decode('utf-8')
+
 
 def get_extension(language):
     """Retourne l'extension de fichier pour un langage donné."""
@@ -96,8 +126,9 @@ def get_extension(language):
         "JAVA": ".java"
     }.get(language, ".txt")
 
+
 def read_line(conn):
-    """Lit une ligne depuis une connexion."""
+    """Lit une ligne terminée par \n depuis la socket."""
     data = b""
     while True:
         chunk = conn.recv(1)
@@ -108,8 +139,9 @@ def read_line(conn):
         data += chunk
     return data.decode('utf-8')
 
+
 def receive_fixed_length(conn, length):
-    """Reçoit un message d'une longueur fixe."""
+    """Reçoit un message de longueur fixe."""
     data = b""
     remaining = length
     while remaining > 0:
@@ -120,20 +152,6 @@ def receive_fixed_length(conn, length):
         remaining -= len(chunk)
     return data.decode('utf-8')
 
-def start_slave():
-    """Démarre le serveur esclave."""
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((HOST, PORT))
-    server_socket.listen(5)
-    print(f"[INFO] Serveur esclave en écoute sur {HOST}:{PORT}")
-
-    while True:
-        try:
-            conn, addr = server_socket.accept()
-            thread = threading.Thread(target=handle_task, args=(conn, addr))
-            thread.start()
-        except Exception as e:
-            print(f"[ERREUR] Erreur lors de l'acceptation de connexion : {e}")
 
 if __name__ == "__main__":
     start_slave()
