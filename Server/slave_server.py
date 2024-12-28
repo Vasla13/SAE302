@@ -1,157 +1,117 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import socket
 import threading
 import subprocess
 import os
-import tempfile
+import sys
 
-
-HOST = '127.0.0.1'
-PORT = 6000  # Peut être modifié selon le maître
-
-
-def start_slave():
-    """Démarre le serveur esclave."""
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((HOST, PORT))
-    server_socket.listen(5)
-    print(f"[INFO] Serveur esclave en écoute sur {HOST}:{PORT}")
-
-    while True:
-        try:
-            conn, addr = server_socket.accept()
-            thread = threading.Thread(target=handle_task, args=(conn, addr))
-            thread.start()
-        except Exception as e:
-            print(f"[ERREUR] Erreur lors de l'acceptation de connexion : {e}")
-
-
-def handle_task(conn, addr):
-    """Gère une tâche reçue par le serveur esclave."""
+def handle_slave_client(client_socket, client_address):
+    """
+    Gère la requête (code) envoyée par le serveur maître :
+     - language|filename|code
+     - Compile/exécute et renvoie le résultat
+    """
     try:
-        print(f"[INFO] Connexion reçue de {addr}")
+        data = client_socket.recv(10_000_000)
+        if not data:
+            client_socket.close()
+            return
 
-        # Lecture du langage
-        language = read_line(conn).strip()
-        print(f"[DEBUG] Langage reçu : {language}")
+        decoded_data = data.decode('utf-8', errors='replace')
+        split_data = decoded_data.split('|', 2)
+        if len(split_data) < 3:
+            client_socket.sendall(b"Erreur : Donnees invalides.\n")
+            client_socket.close()
+            return
 
-        # Lecture de la longueur du code
-        length_line = read_line(conn)
-        code_length = int(length_line.strip())
-        print(f"[DEBUG] Longueur du code : {code_length}")
+        language = split_data[0]
+        filename = split_data[1]
+        code_source = split_data[2]
 
-        # Lecture du code
-        code = receive_fixed_length(conn, code_length)
-        if code:
-            print(f"[DEBUG] Code reçu : {code.strip()}")
+        output = compile_and_run(language, filename, code_source)
+        client_socket.sendall(output.encode('utf-8', errors='replace'))
 
-            # Exécution
-            result = execute_code(language, code)
-            print(f"[DEBUG] Résultat : {result.strip()}")
-
-            # Envoi du résultat au maître
-            conn.sendall(result.encode('utf-8'))
-            print(f"[INFO] Tâche terminée pour {addr}")
-
-    except ConnectionResetError:
-        print(f"[ERREUR] Connexion fermée par l'hôte distant : {addr}")
     except Exception as e:
-        print(f"[ERREUR] Problème lors du traitement : {e}")
-        try:
-            conn.sendall(f"Erreur interne esclave: {e}".encode('utf-8'))
-        except:
-            print("[ERREUR] Impossible d'envoyer l'erreur au client.")
+        error_msg = f"Erreur (serveur esclave) : {str(e)}\n"
+        client_socket.sendall(error_msg.encode('utf-8', errors='replace'))
     finally:
-        conn.close()
+        client_socket.close()
 
 
-def execute_code(language, code):
-    """Exécute le code reçu et renvoie le résultat."""
-    with tempfile.NamedTemporaryFile(delete=False, suffix=get_extension(language)) as tmp_file:
-        tmp_file.write(code.encode('utf-8'))
-        tmp_file_path = tmp_file.name
+def compile_and_run(language, filename, code):
+    """
+    Compile et exécute le code selon le langage spécifié,
+    similaire au serveur maître.
+    """
+    temp_dir = "temp_codes_slave"
+    os.makedirs(temp_dir, exist_ok=True)
 
-    output = ""
+    filepath = os.path.join(temp_dir, filename)
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(code)
+
     try:
-        if language == "PYTHON":
-            cmd = ["python", tmp_file_path]
-            output = run_command(cmd)
-        elif language == "C":
-            exe_file = tmp_file_path + (".exe" if os.name == 'nt' else ".out")
-            c_out = run_command(["gcc", tmp_file_path, "-o", exe_file])
-            output = c_out if c_out.strip() else run_command([exe_file])
-        elif language in ("CPP", "C++"):
-            exe_file = tmp_file_path + (".exe" if os.name == 'nt' else ".out")
-            c_out = run_command(["g++", tmp_file_path, "-o", exe_file])
-            output = c_out if c_out.strip() else run_command([exe_file])
-        elif language == "JAVA":
-            dir_name = os.path.dirname(tmp_file_path)
-            src_filename = os.path.join(dir_name, "Main.java")
-            if os.path.exists(src_filename):
-                os.remove(src_filename)
-            os.rename(tmp_file_path, src_filename)
-
-            c_out = run_command(["javac", src_filename])
-            output = c_out if c_out.strip() else run_command(["java", "-cp", dir_name, "Main"])
-
-            # Nettoyage
-            if os.path.exists(src_filename):
-                os.remove(src_filename)
-            for cf in os.listdir(dir_name):
-                if cf.endswith(".class"):
-                    os.remove(os.path.join(dir_name, cf))
+        if language.lower() in ["python", ".py"]:
+            cmd = [sys.executable, filepath]
+        elif language.lower() in ["c", ".c"]:
+            exe_file = os.path.splitext(filepath)[0]
+            compile_proc = subprocess.run(["gcc", filepath, "-o", exe_file],
+                                          capture_output=True, text=True)
+            if compile_proc.returncode != 0:
+                return f"Erreur de compilation C:\n{compile_proc.stderr}"
+            cmd = [exe_file]
+        elif language.lower() in ["c++", "cpp", ".cpp"]:
+            exe_file = os.path.splitext(filepath)[0]
+            compile_proc = subprocess.run(["g++", filepath, "-o", exe_file],
+                                          capture_output=True, text=True)
+            if compile_proc.returncode != 0:
+                return f"Erreur de compilation C++:\n{compile_proc.stderr}"
+            cmd = [exe_file]
+        elif language.lower() in ["java", ".java"]:
+            compile_proc = subprocess.run(["javac", filepath],
+                                          capture_output=True, text=True)
+            if compile_proc.returncode != 0:
+                return f"Erreur de compilation Java:\n{compile_proc.stderr}"
+            class_file = os.path.splitext(os.path.basename(filepath))[0]
+            cmd = ["java", "-cp", temp_dir, class_file]
         else:
-            output = f"Langage non supporté : {language}"
+            return "Langage non supporté ou inconnu.\n"
+
+        exec_proc = subprocess.run(cmd, capture_output=True, text=True)
+        output = f"Sortie:\n{exec_proc.stdout}\n"
+        if exec_proc.stderr:
+            output += f"Erreurs:\n{exec_proc.stderr}\n"
+        return output
+
     except Exception as e:
-        output = f"Erreur lors de l'exécution : {e}"
-    finally:
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            os.remove(tmp_file_path)
-    return output
+        return f"Erreur lors de l'execution : {str(e)}\n"
 
 
-def run_command(cmd):
-    """Exécute une commande système et renvoie stdout + stderr."""
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = proc.communicate()
-    return stdout.decode('utf-8') + stderr.decode('utf-8')
+def start_slave_server(host="0.0.0.0", port=6001):
+    """
+    Lance le serveur esclave sur le port spécifié.
+    """
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((host, port))
+    server.listen(5)
+    print(f"[SERVEUR ESCLAVE] En écoute sur {host}:{port} ...")
 
-
-def get_extension(language):
-    """Retourne l'extension de fichier pour un langage donné."""
-    return {
-        "PYTHON": ".py",
-        "C": ".c",
-        "CPP": ".cpp",
-        "C++": ".cpp",
-        "JAVA": ".java"
-    }.get(language, ".txt")
-
-
-def read_line(conn):
-    """Lit une ligne terminée par \n depuis la socket."""
-    data = b""
     while True:
-        chunk = conn.recv(1)
-        if not chunk:
-            raise ConnectionResetError("Connexion interrompue lors de la lecture")
-        if chunk == b"\n":
-            break
-        data += chunk
-    return data.decode('utf-8')
-
-
-def receive_fixed_length(conn, length):
-    """Reçoit un message de longueur fixe."""
-    data = b""
-    remaining = length
-    while remaining > 0:
-        chunk = conn.recv(remaining)
-        if not chunk:
-            raise ConnectionResetError("Connexion interrompue lors de la réception")
-        data += chunk
-        remaining -= len(chunk)
-    return data.decode('utf-8')
+        client_socket, client_address = server.accept()
+        print(f"[CONNEXION ESCLAVE] Serveur maître connecté: {client_address}")
+        slave_thread = threading.Thread(
+            target=handle_slave_client,
+            args=(client_socket, client_address),
+            daemon=True
+        )
+        slave_thread.start()
 
 
 if __name__ == "__main__":
-    start_slave()
+    host = "0.0.0.0"
+    port = 6001
+    if len(sys.argv) > 1:
+        port = int(sys.argv[1])
+    start_slave_server(host, port)

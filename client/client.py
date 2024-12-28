@@ -1,486 +1,351 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import sys
 import socket
 import os
-import re
-from PyQt6 import QtWidgets, QtGui, QtCore
 
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton,
+    QVBoxLayout, QHBoxLayout, QTextEdit, QComboBox, QFileDialog, QMenuBar, QMenu,
+    QMessageBox, QGroupBox, QGridLayout, QSplitter
+)
+from PyQt6.QtCore import Qt, QRegularExpression
+from PyQt6.QtGui import QFont, QTextCharFormat, QColor, QSyntaxHighlighter
 
-def receive_all(sock):
-    """Lit tous les octets disponibles depuis la socket."""
-    data = b""
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk:
-            break
-        data += chunk
-    return data.decode('utf-8')
-
-
-# ---- Coloration syntaxique Python (exemple) ----
-class PythonHighlighter(QtGui.QSyntaxHighlighter):
-    """Highlighter simple pour le Python."""
+# =========================
+# Simple highlighter Python
+# =========================
+class PythonSyntaxHighlighter(QSyntaxHighlighter):
+    """
+    Un simple QSyntaxHighlighter pour le code Python (exemple minimal).
+    Ajoutez vos règles pour C, C++, Java, etc. si vous le souhaitez.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.rules = []
+        self._rules = []
 
-        keyword_format = QtGui.QTextCharFormat()
-        keyword_format.setForeground(QtGui.QColor("blue"))
-        keywords = ["def", "class", "import", "from", "if", "else", "elif", "for", "while", "return", "print"]
-        for kw in keywords:
-            pattern = r"\b" + kw + r"\b"
-            self.rules.append((re.compile(pattern), keyword_format))
+        # Format pour les mots-clés
+        keyword_format = QTextCharFormat()
+        keyword_format.setForeground(QColor("#0000FF"))  # Bleu
+        keyword_words = [
+            "def", "class", "import", "from", "as", "if", "elif", "else", 
+            "for", "while", "return", "in", "and", "or", "not", "print"
+        ]
+        for word in keyword_words:
+            pattern = QRegularExpression(r"\b" + word + r"\b")
+            self._rules.append((pattern, keyword_format))
 
-        string_format = QtGui.QTextCharFormat()
-        string_format.setForeground(QtGui.QColor("darkred"))
-        self.rules.append((re.compile(r'".*?"'), string_format))
-        self.rules.append((re.compile(r"'.*?'"), string_format))
+        # Format pour les chaînes de caractères (simple / double quotes)
+        string_format = QTextCharFormat()
+        string_format.setForeground(QColor("#008000"))  # Vert
+        # Simple quotes
+        pattern_single = QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'")
+        self._rules.append((pattern_single, string_format))
+        # Double quotes
+        pattern_double = QRegularExpression(r"\"[^\"\\]*(\\.[^\"\\]*)*\"")
+        self._rules.append((pattern_double, string_format))
+
+        # Format pour les commentaires (# ...)
+        comment_format = QTextCharFormat()
+        comment_format.setForeground(QColor("#999999"))  # Gris
+        pattern_comment = QRegularExpression(r"#.*")
+        self._rules.append((pattern_comment, comment_format))
 
     def highlightBlock(self, text):
-        for pattern, fmt in self.rules:
-            for m in pattern.finditer(text):
-                self.setFormat(m.start(), m.end() - m.start(), fmt)
+        for pattern, fmt in self._rules:
+            matcher = pattern.globalMatch(text)
+            while matcher.hasNext():
+                match = matcher.next()
+                self.setFormat(match.capturedStart(), match.capturedLength(), fmt)
 
 
-# ---- Zone de numérotation des lignes ----
-class LineNumberArea(QtWidgets.QWidget):
-    def __init__(self, editor):
-        super().__init__(editor)
-        self.editor = editor
-
-    def sizeHint(self):
-        return QtCore.QSize(self.editor.line_number_area_width(), 0)
-
-    def paintEvent(self, event):
-        self.editor.lineNumberAreaPaintEvent(event)
-
-
-class CodeEditor(QtWidgets.QPlainTextEdit):
-    """Éditeur de code avec numérotation de lignes et highlight des parenthèses."""
+class ClientGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.lineNumberArea = LineNumberArea(self)
-        self.blockCountChanged.connect(self.updateLineNumberAreaWidth)
-        self.updateRequest.connect(self.updateLineNumberArea)
-        self.cursorPositionChanged.connect(self.highlightCurrentLine)
-        self.updateLineNumberAreaWidth(0)
-        self.parenthesis_highlight_format = QtGui.QTextCharFormat()
-        self.parenthesis_highlight_format.setBackground(QtGui.QColor("#d0d0ff"))
+        self.setWindowTitle("Client - Exécution de Code Distribué (Admin, Paramètres, Kill Esclaves)")
+        self.resize(1200, 800)
 
-    def line_number_area_width(self):
-        digits = len(str(self.blockCount()))
-        return 3 + self.fontMetrics().horizontalAdvance('9') * digits
+        # =========================
+        #  Barre de menu (optionnel)
+        # =========================
+        menubar = QMenuBar(self)
+        file_menu = QMenu("Fichier", self)
+        menubar.addMenu(file_menu)
+        self.setMenuBar(menubar)
 
-    def updateLineNumberAreaWidth(self, _):
-        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+        # (Vous pouvez aussi lier des actions de menu si souhaité)
+        # open_action = file_menu.addAction("Ouvrir un fichier...")
+        # open_action.triggered.connect(self.open_file_dialog)
+        # save_action = file_menu.addAction("Enregistrer le code...")
+        # save_action.triggered.connect(self.save_file_dialog)
 
-    def updateLineNumberArea(self, rect, dy):
-        if dy:
-            self.lineNumberArea.scroll(0, dy)
-        else:
-            self.lineNumberArea.update(0, rect.y(), self.lineNumberArea.width(), rect.height())
-        if rect.contains(self.viewport().rect()):
-            self.updateLineNumberAreaWidth(0)
+        # =========================
+        #  Paramètres de connexion et compilation
+        # =========================
+        self.ip_label = QLabel("IP du serveur :")
+        self.ip_edit = QLineEdit("127.0.0.1")  # Valeur par défaut
 
-    def lineNumberAreaPaintEvent(self, event):
-        painter = QtGui.QPainter(self.lineNumberArea)
-        painter.fillRect(event.rect(), QtGui.QColor("#f0f0f0"))
+        self.port_label = QLabel("Port :")
+        self.port_edit = QLineEdit("5000")     # Valeur par défaut
 
-        block = self.firstVisibleBlock()
-        blockNumber = block.blockNumber()
-        top = int(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
-        bottom = top + int(self.blockBoundingRect(block).height())
+        self.lang_label = QLabel("Langage :")
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItems(["Python", "C", "C++", "Java"])
 
-        while block.isValid() and top <= event.rect().bottom():
-            if block.isVisible() and bottom >= event.rect().top():
-                number = str(blockNumber + 1)
-                painter.setPen(QtGui.QColor("black"))
-                painter.drawText(0, top, self.lineNumberArea.width(),
-                                 self.fontMetrics().height(),
-                                 QtCore.Qt.AlignmentFlag.AlignRight, number)
-            block = block.next()
-            top = bottom
-            bottom = top + int(self.blockBoundingRect(block).height())
-            blockNumber += 1
+        self.file_label = QLabel("Nom du fichier :")
+        self.file_edit = QLineEdit("main.py")
 
-    def highlightCurrentLine(self):
-        """Surligne la ligne courante et les parenthèses correspondantes."""
-        extraSelections = []
-        selection = QtWidgets.QTextEdit.ExtraSelection()
-        lineColor = QtGui.QColor("#e0f0ff")
-        selection.format.setBackground(lineColor)
-        selection.format.setProperty(QtGui.QTextFormat.Property.FullWidthSelection, True)
-        selection.cursor = self.textCursor()
-        selection.cursor.clearSelection()
-        extraSelections.append(selection)
+        # Boutons pour Importer / Enregistrer le code
+        self.import_code_button = QPushButton("Importer un fichier")
+        self.import_code_button.clicked.connect(self.open_file_dialog)
 
-        self.highlightMatchingParentheses(extraSelections)
-        self.setExtraSelections(extraSelections)
+        self.save_code_button = QPushButton("Enregistrer le code")
+        self.save_code_button.clicked.connect(self.save_file_dialog)
 
-    def highlightMatchingParentheses(self, extraSelections):
-        """Recherche les parenthèses correspondantes."""
-        cursor = self.textCursor()
-        block = cursor.block()
-        text = block.text()
-        pos = cursor.positionInBlock()
+        # GroupBox Paramètres
+        top_groupbox = QGroupBox("Paramètres de connexion et compilation")
+        top_layout = QGridLayout()
 
-        if pos > 0 <= len(text):
-            char = text[pos - 1]
-            if char in ")]":
-                match_char = "(" if char == ")" else "["
-                direction = -1
-                balance = 0
-                index = pos - 1
-                while 0 <= index < len(text):
-                    c = text[index]
-                    if c == char:
-                        balance += 1
-                    elif c == match_char:
-                        balance -= 1
-                    if balance == 0 and c == match_char:
-                        sel = QtWidgets.QTextEdit.ExtraSelection()
-                        sel.format = self.parenthesis_highlight_format
-                        sel.cursor = self.textCursor()
-                        sel.cursor.setPosition(cursor.block().position() + index)
-                        sel.cursor.movePosition(QtGui.QTextCursor.MoveOperation.NextCharacter,
-                                                QtGui.QTextCursor.MoveMode.KeepAnchor)
-                        extraSelections.append(sel)
+        top_layout.addWidget(self.ip_label, 0, 0)
+        top_layout.addWidget(self.ip_edit, 0, 1)
+        top_layout.addWidget(self.port_label, 0, 2)
+        top_layout.addWidget(self.port_edit, 0, 3)
 
-                        sel2 = QtWidgets.QTextEdit.ExtraSelection()
-                        sel2.format = self.parenthesis_highlight_format
-                        sel2.cursor = self.textCursor()
-                        sel2.cursor.setPosition(cursor.position() - 1)
-                        sel2.cursor.movePosition(QtGui.QTextCursor.MoveOperation.NextCharacter,
-                                                 QtGui.QTextCursor.MoveMode.KeepAnchor)
-                        extraSelections.append(sel2)
-                        break
-                    index += (direction * -1)
+        top_layout.addWidget(self.lang_label, 1, 0)
+        top_layout.addWidget(self.lang_combo, 1, 1)
+        top_layout.addWidget(self.file_label, 1, 2)
+        top_layout.addWidget(self.file_edit, 1, 3)
 
+        top_layout.addWidget(self.import_code_button, 2, 0, 1, 2)
+        top_layout.addWidget(self.save_code_button,    2, 2, 1, 2)
 
-class ClientWindow(QtWidgets.QMainWindow):
-    """Fenêtre principale du client IDE."""
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Client IDE")
-        self.setGeometry(100, 100, 1000, 700)
+        top_groupbox.setLayout(top_layout)
 
-        # Variables internes
-        self.code_history = []
-        self.current_file = None
-        self.is_dark_theme = False
+        # =========================
+        #  Éditeur de code
+        # =========================
+        self.code_edit = QTextEdit()
+        font = QFont("Courier New", 11)
+        self.code_edit.setFont(font)
+        self.syntax_highlighter = PythonSyntaxHighlighter(self.code_edit.document())
 
-        # Adresse des esclaves (à adapter si besoin)
-        self.slaves = [
-            ('127.0.0.1', 6000)
-        ]
+        # =========================
+        #  Résultats d'exécution
+        # =========================
+        self.result_edit = QTextEdit()
+        self.result_edit.setReadOnly(True)
+        self.result_edit.setFont(font)
 
-        # Widgets (zone de configuration)
-        ip_label = QtWidgets.QLabel("IP du serveur :")
-        self.ip_edit = QtWidgets.QLineEdit("127.0.0.1")
+        self.run_button = QPushButton("Exécuter le code")
+        self.run_button.clicked.connect(self.run_code)
 
-        port_label = QtWidgets.QLabel("Port :")
-        self.port_edit = QtWidgets.QLineEdit("5000")
+        self.clear_result_button = QPushButton("Vider la sortie")
+        self.clear_result_button.clicked.connect(self.clear_result)
 
-        language_label = QtWidgets.QLabel("Langage :")
-        self.language_combo = QtWidgets.QComboBox()
-        self.language_combo.addItems(["PYTHON", "C", "C++", "JAVA"])
+        # =========================
+        #  Section Administration
+        # =========================
+        self.admin_groupbox = QGroupBox("Administration du Serveur")
+        self.admin_layout = QVBoxLayout()
 
-        # Éditeur de code
-        self.code_editor = CodeEditor()
-        self.highlighter = PythonHighlighter(self.code_editor.document())
+        # Champ pour nouvelle valeur de MAX_TASKS
+        self.new_max_label = QLabel("Nouvelle valeur de MAX_TASKS :")
+        self.new_max_edit = QLineEdit("5")
+        self.btn_set_max_tasks = QPushButton("Mettre à jour MAX_TASKS")
+        self.btn_set_max_tasks.clicked.connect(self.update_max_tasks)
 
-        # Boutons
-        self.send_button = QtWidgets.QPushButton("Envoyer")
-        self.send_button.clicked.connect(self.send_code)
+        # Bouton pour récupérer les infos du serveur
+        self.btn_get_info = QPushButton("Obtenir info du serveur (Tâches, MAX_TASKS, etc.)")
+        self.btn_get_info.clicked.connect(self.get_server_info)
 
-        self.import_button = QtWidgets.QPushButton("Importer un fichier")
-        self.import_button.clicked.connect(self.import_file)
+        self.admin_layout.addWidget(self.new_max_label)
+        self.admin_layout.addWidget(self.new_max_edit)
+        self.admin_layout.addWidget(self.btn_set_max_tasks)
+        self.admin_layout.addSpacing(10)
+        self.admin_layout.addWidget(self.btn_get_info)
 
-        # Zone de résultats
-        self.results_display = QtWidgets.QPlainTextEdit()
-        self.results_display.setReadOnly(True)
+        self.admin_groupbox.setLayout(self.admin_layout)
 
-        # Barre de statut + barre de progression
-        self.status_bar = QtWidgets.QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Prêt")
+        # =========================
+        #  Splitter code / résultats
+        # =========================
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(5)
 
-        self.progress_bar = QtWidgets.QProgressBar()
-        self.progress_bar.setMaximum(0)
-        self.progress_bar.setVisible(False)
+        code_groupbox = QGroupBox("Éditeur de code")
+        code_layout = QVBoxLayout()
+        code_layout.addWidget(self.code_edit)
+        code_groupbox.setLayout(code_layout)
 
-        # Label pour afficher la charge (optionnel, ici fictif)
-        self.charge_label = QtWidgets.QLabel("Charge: Inconnue")
-        self.status_bar.addPermanentWidget(self.charge_label)
+        result_groupbox = QGroupBox("Résultats d'exécution")
+        result_layout = QVBoxLayout()
 
-        # Layouts
-        top_layout = QtWidgets.QHBoxLayout()
-        top_layout.addWidget(ip_label)
-        top_layout.addWidget(self.ip_edit)
-        top_layout.addWidget(port_label)
-        top_layout.addWidget(self.port_edit)
-        top_layout.addWidget(language_label)
-        top_layout.addWidget(self.language_combo)
-        top_layout.addWidget(self.send_button)
-        top_layout.addWidget(self.import_button)
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.run_button)
+        button_layout.addWidget(self.clear_result_button)
 
-        main_layout = QtWidgets.QVBoxLayout()
-        main_layout.addLayout(top_layout)
-        main_layout.addWidget(QtWidgets.QLabel("Code source :"))
-        main_layout.addWidget(self.code_editor)
-        main_layout.addWidget(QtWidgets.QLabel("Résultats :"))
-        main_layout.addWidget(self.results_display)
-        main_layout.addWidget(self.progress_bar)
+        result_layout.addLayout(button_layout)
+        result_layout.addWidget(self.result_edit)
+        result_groupbox.setLayout(result_layout)
 
-        container = QtWidgets.QWidget()
+        splitter.addWidget(code_groupbox)
+        splitter.addWidget(result_groupbox)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+
+        # =========================
+        #  Layout principal
+        # =========================
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(top_groupbox)
+
+        # Admin + splitter côte à côte
+        middle_layout = QHBoxLayout()
+        middle_layout.addWidget(self.admin_groupbox, stretch=0)
+        middle_layout.addWidget(splitter, stretch=1)
+
+        main_layout.addLayout(middle_layout)
+
+        container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
-        self.create_menus_and_toolbars()
+        # Code par défaut
+        self.code_edit.setPlainText("# Écrivez votre code Python ici...\nprint('Hello World!')")
 
-    def create_menus_and_toolbars(self):
-        menubar = self.menuBar()
-        
-        # Menu Fichier
-        file_menu = menubar.addMenu("Fichier")
-        open_action = QtGui.QAction("Ouvrir...", self)
-        open_action.triggered.connect(self.import_file)
-        file_menu.addAction(open_action)
-
-        save_action = QtGui.QAction("Enregistrer...", self)
-        save_action.triggered.connect(self.save_file)
-        file_menu.addAction(save_action)
-
-        exit_action = QtGui.QAction("Quitter", self)
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-
-        # Menu Edition
-        edit_menu = menubar.addMenu("Edition")
-        history_action = QtGui.QAction("Historique", self)
-        history_action.triggered.connect(self.show_history)
-        edit_menu.addAction(history_action)
-
-        # Menu Affichage (Thème)
-        view_menu = menubar.addMenu("Affichage")
-        theme_action = QtGui.QAction("Basculer thème clair/sombre", self)
-        theme_action.setCheckable(True)
-        theme_action.triggered.connect(self.toggle_theme)
-        view_menu.addAction(theme_action)
-
-        # Résultats dans une fenêtre séparée
-        results_action = QtGui.QAction("Ouvrir résultats dans une fenêtre", self)
-        results_action.triggered.connect(self.open_results_in_window)
-        view_menu.addAction(results_action)
-
-        # Menu Réseau
-        network_menu = menubar.addMenu("Réseau")
-        check_conn_action = QtGui.QAction("Vérifier les connexions", self)
-        check_conn_action.triggered.connect(self.check_connections)
-        network_menu.addAction(check_conn_action)
-
-        # Toolbar
-        toolbar = self.addToolBar("Outils")
-        toolbar.addAction(open_action)
-        toolbar.addAction(save_action)
-        toolbar.addAction(history_action)
-        toolbar.addAction(check_conn_action)
-
-    def check_connections(self):
-        """Vérifie la connexion au serveur maître et aux esclaves."""
+    # ======================================================
+    #   Méthodes : Exécuter code
+    # ======================================================
+    def run_code(self):
+        """
+        Envoie le code au serveur maître pour compilation/exécution.
+        Affiche la sortie ou l'erreur dans la zone de résultats.
+        """
         server_ip = self.ip_edit.text().strip()
-        server_port_str = self.port_edit.text().strip()
-        try:
-            server_port = int(server_port_str)
-        except ValueError:
-            QtWidgets.QMessageBox.warning(self, "Erreur", "Le port du serveur maître n'est pas valide.")
-            return
+        server_port = int(self.port_edit.text().strip())
 
-        master_status = self.test_connection(server_ip, server_port)
-        slaves_status = []
-        for ip, port in self.slaves:
-            status = self.test_connection(ip, port)
-            slaves_status.append((ip, port, status))
+        language = self.lang_combo.currentText()
+        filename = self.file_edit.text().strip()
+        code_source = self.code_edit.toPlainText()
 
-        msg = f"Serveur maître ({server_ip}:{server_port}) : {'Connecté' if master_status else 'Non accessible'}\n\n"
-        for (ip, port, st) in slaves_status:
-            msg += f"Esclave ({ip}:{port}) : {'Connecté' if st else 'Non accessible'}\n"
-
-        QtWidgets.QMessageBox.information(self, "Etat des connexions", msg)
-
-    def test_connection(self, ip, port):
-        """Teste la connexion à l'adresse IP et au port spécifiés."""
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(1.0)
-            s.connect((ip, port))
-            s.close()
-            return True
-        except:
-            return False
-
-    def toggle_theme(self, checked):
-        """Bascule le thème de l'interface (clair/sombre)."""
-        self.is_dark_theme = checked
-        if checked:
-            palette = QtGui.QPalette()
-            palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(53, 53, 53))
-            palette.setColor(QtGui.QPalette.ColorRole.WindowText, QtCore.Qt.GlobalColor.white)
-            palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(25, 25, 25))
-            palette.setColor(QtGui.QPalette.ColorRole.AlternateBase, QtGui.QColor(53, 53, 53))
-            palette.setColor(QtGui.QPalette.ColorRole.ToolTipBase, QtCore.Qt.GlobalColor.white)
-            palette.setColor(QtGui.QPalette.ColorRole.ToolTipText, QtCore.Qt.GlobalColor.white)
-            palette.setColor(QtGui.QPalette.ColorRole.Text, QtCore.Qt.GlobalColor.white)
-            palette.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor(53, 53, 53))
-            palette.setColor(QtGui.QPalette.ColorRole.ButtonText, QtCore.Qt.GlobalColor.white)
-            palette.setColor(QtGui.QPalette.ColorRole.BrightText, QtCore.Qt.GlobalColor.red)
-            palette.setColor(QtGui.QPalette.ColorRole.Highlight, QtGui.QColor(142, 45, 197).lighter())
-            palette.setColor(QtGui.QPalette.ColorRole.HighlightedText, QtCore.Qt.GlobalColor.black)
-            self.setPalette(palette)
-        else:
-            self.setPalette(self.style().standardPalette())
-
-    def show_history(self):
-        """Affiche l'historique des codes envoyés."""
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Historique")
-        layout = QtWidgets.QVBoxLayout(dialog)
-
-        list_widget = QtWidgets.QListWidget(dialog)
-        for i, code in enumerate(self.code_history):
-            processed_code = code[:30].replace('\n', ' ')
-            list_widget.addItem(f"Code #{i + 1} : {processed_code}...")
-        layout.addWidget(list_widget)
-
-        buttonBox = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
-        )
-        layout.addWidget(buttonBox)
-        buttonBox.accepted.connect(dialog.accept)
-        buttonBox.rejected.connect(dialog.reject)
-
-        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            if list_widget.currentRow() >= 0:
-                self.code_editor.setPlainText(self.code_history[list_widget.currentRow()])
-
-    def open_results_in_window(self):
-        """Ouvre les résultats dans une fenêtre séparée."""
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Résultats")
-        layout = QtWidgets.QVBoxLayout(dialog)
-        results_view = QtWidgets.QPlainTextEdit(dialog)
-        results_view.setReadOnly(True)
-        results_view.setPlainText(self.results_display.toPlainText())
-        layout.addWidget(results_view)
-        dialog.exec()
-
-    def send_code(self):
-        """Envoie le code au serveur maître pour exécution."""
-        ip = self.ip_edit.text().strip()
-        port_str = self.port_edit.text().strip()
-        language = self.language_combo.currentText()
-        code = self.code_editor.toPlainText()
-
-        if not ip or not port_str or not code:
-            self.results_display.setPlainText("Veuillez remplir tous les champs et fournir du code.")
-            return
+        payload = f"{language}|{filename}|{code_source}"
 
         try:
-            port = int(port_str)
-        except ValueError:
-            self.results_display.setPlainText("Le port doit être un entier.")
-            return
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((server_ip, server_port))
+                s.sendall(payload.encode('utf-8'))
 
-        self.status_bar.showMessage("Exécution en cours...")
-        self.send_button.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        QtWidgets.QApplication.processEvents()  # Mise à jour de l'UI
+                response = []
+                while True:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    response.append(chunk.decode('utf-8', errors='replace'))
+            result = "".join(response)
+            self.result_edit.setPlainText(result)
 
-        # Historique
-        self.code_history.append(code)
-
-        # Connexion au serveur
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((ip, port))
         except Exception as e:
-            self.results_display.setPlainText(f"Impossible de se connecter au serveur : {e}")
-            self.status_bar.showMessage("Erreur")
-            self.send_button.setEnabled(True)
-            self.progress_bar.setVisible(False)
+            self.result_edit.setPlainText(f"Erreur (exécution) : {str(e)}")
+
+    # ======================================================
+    #   Méthodes : Administration (GET_INFO, SET_MAX_TASKS)
+    # ======================================================
+    def get_server_info(self):
+        """
+        Envoie ADMIN|GET_INFO pour connaître la charge (current_tasks) et MAX_TASKS
+        """
+        resp = self.send_admin_command("GET_INFO")
+        self.result_edit.setPlainText(resp)
+
+    def update_max_tasks(self):
+        """
+        Envoie ADMIN|SET_MAX_TASKS|<valeur> pour mettre à jour MAX_TASKS sur le maître.
+        """
+        new_max = self.new_max_edit.text().strip()
+        if not new_max.isdigit():
+            QMessageBox.warning(self, "Attention", "La valeur de MAX_TASKS doit être un entier.")
             return
 
-        # Envoi des données
+        command = f"SET_MAX_TASKS|{new_max}"
+        resp = self.send_admin_command(command)
+        self.result_edit.setPlainText(resp)
+
+    def send_admin_command(self, subcommand):
+        """
+        Envoie une commande ADMIN : ADMIN|<subcommand>[|param...]
+        ex: ADMIN|GET_INFO, ADMIN|SET_MAX_TASKS|5
+        """
+        server_ip = self.ip_edit.text().strip()
+        server_port = int(self.port_edit.text().strip())
+
+        payload = f"ADMIN|{subcommand}"
         try:
-            header = language + "\n" + str(len(code)) + "\n"
-            s.sendall(header.encode('utf-8'))
-            s.sendall(code.encode('utf-8'))
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((server_ip, server_port))
+                s.sendall(payload.encode('utf-8'))
+
+                response = []
+                while True:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    response.append(chunk.decode('utf-8', errors='replace'))
+            return "".join(response)
         except Exception as e:
-            self.results_display.setPlainText(f"Erreur lors de l'envoi des données : {e}")
-            s.close()
-            self.status_bar.showMessage("Erreur")
-            self.send_button.setEnabled(True)
-            self.progress_bar.setVisible(False)
-            return
+            return f"Erreur (admin) : {str(e)}"
 
-        # Réception du résultat
-        try:
-            result = receive_all(s)
-            self.results_display.setPlainText(result)
-        except Exception as e:
-            self.results_display.setPlainText(f"Erreur lors de la réception des données : {e}")
-        finally:
-            s.close()
+    # ======================================================
+    #   Méthodes : Importer/Enregistrer le code
+    # ======================================================
+    def open_file_dialog(self):
+        """
+        Ouvrir un fichier existant sur le disque et charger son contenu dans l'éditeur.
+        """
+        file_dialog = QFileDialog(self, "Importer un fichier")
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if file_dialog.exec():
+            selected_files = file_dialog.selectedFiles()
+            if selected_files:
+                file_path = selected_files[0]
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    self.code_edit.setPlainText(content)
+                    self.file_edit.setText(os.path.basename(file_path))
+                except Exception as e:
+                    QMessageBox.critical(self, "Erreur", f"Impossible de lire le fichier:\n{str(e)}")
 
-        self.status_bar.showMessage("Terminé")
-        self.send_button.setEnabled(True)
-        self.progress_bar.setVisible(False)
+    def save_file_dialog(self):
+        """
+        Enregistrer le code courant dans un fichier sur le disque.
+        """
+        file_dialog = QFileDialog(self, "Enregistrer le code")
+        file_dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        if file_dialog.exec():
+            selected_files = file_dialog.selectedFiles()
+            if selected_files:
+                file_path = selected_files[0]
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(self.code_edit.toPlainText())
+                    QMessageBox.information(self, "Succès", "Fichier enregistré avec succès.")
+                except Exception as e:
+                    QMessageBox.critical(self, "Erreur", f"Impossible d'enregistrer le fichier:\n{str(e)}")
 
-    def import_file(self):
-        """Importe un fichier dans l'éditeur (détection automatique du langage)."""
-        selected_file, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Ouvrir un fichier", "", "Tous les fichiers (*)"
-        )
-        if selected_file:
-            try:
-                with open(selected_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                self.code_editor.setPlainText(content)
-                self.current_file = selected_file
+    # ======================================================
+    #   Divers
+    # ======================================================
+    def clear_result(self):
+        """Vider la zone de sortie."""
+        self.result_edit.clear()
 
-                # Ajuster la combo en fonction de l'extension
-                ext = os.path.splitext(selected_file)[1].lower()
-                if ext == ".py":
-                    self.language_combo.setCurrentText("PYTHON")
-                elif ext == ".c":
-                    self.language_combo.setCurrentText("C")
-                elif ext == ".cpp":
-                    self.language_combo.setCurrentText("C++")
-                elif ext == ".java":
-                    self.language_combo.setCurrentText("JAVA")
 
-            except Exception as e:
-                self.results_display.setPlainText(f"Erreur lors de la lecture du fichier : {e}")
-
-    def save_file(self):
-        """Enregistre le contenu de l'éditeur dans un fichier."""
-        if not self.current_file:
-            save_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self, "Enregistrer sous", "", "Tous les fichiers (*)"
-            )
-            if not save_path:
-                return
-            self.current_file = save_path
-
-        try:
-            with open(self.current_file, 'w', encoding='utf-8') as f:
-                f.write(self.code_editor.toPlainText())
-            self.status_bar.showMessage(f"Fichier enregistré: {self.current_file}")
-        except Exception as e:
-            self.results_display.setPlainText(f"Erreur lors de l'enregistrement : {e}")
-
+def main():
+    app = QApplication(sys.argv)
+    gui = ClientGUI()
+    gui.show()
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
-    app = QtWidgets.QApplication(sys.argv)
-    window = ClientWindow()
-    window.show()
-    sys.exit(app.exec())
+    main()
