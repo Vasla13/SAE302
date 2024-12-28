@@ -11,14 +11,14 @@ import time
 ##########################################
 # Paramètres de charge et de scaling
 ##########################################
-MAX_TASKS = 3          # Limite de tâches en local avant délégation
-MAX_SLAVES = 5         # Nombre maximum d'esclaves que le maître peut lancer
-SLAVE_PORTS = [6001, 6002, 6003, 6004, 6005, 6006]  # Ports possibles pour les esclaves
+MAX_TASKS = 3           # Limite de tâches en local avant délégation
+MAX_SLAVES = 5          # Nombre maximum d'esclaves que le maître peut lancer
+SLAVE_PORTS = [6001, 6002, 6003, 6004, 6005, 6006]
 
-SLAVE_SERVERS = []     # Liste dynamique (ip, port) des esclaves
-SLAVE_PROCESSES = []   # Liste des processus (Popen) esclaves lancés
+SLAVE_SERVERS = []      # Liste dynamique (ip, port) des esclaves
+SLAVE_PROCESSES = []    # Liste des processus (Popen) esclaves lancés
 
-current_tasks = 0      # Nombre de tâches en cours d'exécution locale
+current_tasks = 0       # Nombre de tâches en cours d'exécution locale
 tasks_lock = threading.Lock()
 
 ##########################################
@@ -28,13 +28,7 @@ KILL_THRESHOLD = 0         # Si current_tasks <= 0, on considère la charge "tr�
 KILL_GRACE_PERIOD = 30     # Temps (secondes) pendant lequel la charge doit rester <= KILL_THRESHOLD
 last_time_low_load = None  # Timestamp quand on est passé en charge basse
 
-
 def handle_client(client_socket, client_address):
-    """
-    Gère la connexion avec un client.
-    - Soit il s'agit d'une commande ADMIN (ADMIN|GET_INFO, ADMIN|SET_MAX_TASKS|X, etc.)
-    - Soit c'est du code à compiler/exécuter ("language|filename|code_source")
-    """
     global current_tasks
     
     try:
@@ -45,7 +39,7 @@ def handle_client(client_socket, client_address):
 
         decoded_data = data.decode('utf-8', errors='replace')
 
-        # Vérifions si c’est une commande ADMIN
+        # Vérifier si c’est une commande ADMIN
         if decoded_data.startswith("ADMIN|"):
             response = handle_admin_command(decoded_data)
             client_socket.sendall(response.encode('utf-8', errors='replace'))
@@ -69,14 +63,14 @@ def handle_client(client_socket, client_address):
                 # Tenter de lancer un nouvel esclave si possible
                 maybe_launch_new_slave()
                 
-                # On délègue la tâche à un esclave s'il y en a au moins un
+                # On délègue la tâche à un esclave s'il y en a
                 if SLAVE_SERVERS:
                     result = delegate_to_slave(language, filename, code_source)
                     client_socket.sendall(result.encode('utf-8', errors='replace'))
                     client_socket.close()
                     return
                 else:
-                    # Sinon, pas d'esclave dispo -> exécution locale malgré tout
+                    # Pas d'esclave dispo -> exécution locale malgré tout
                     current_tasks += 1
             else:
                 current_tasks += 1
@@ -90,24 +84,23 @@ def handle_client(client_socket, client_address):
         client_socket.sendall(error_msg.encode('utf-8', errors='replace'))
 
     finally:
-        # Libération de la ressource
+        # Libérer la ressource
         with tasks_lock:
             if current_tasks > 0:
                 current_tasks -= 1
 
         client_socket.close()
 
-
 def handle_admin_command(decoded_data):
     """
     Gère les commandes ADMIN, ex:
       - ADMIN|GET_INFO
       - ADMIN|SET_MAX_TASKS|<valeur>
+      - ADMIN|SET_MAX_SLAVES|<valeur>
     """
-    global current_tasks, MAX_TASKS
+    global current_tasks, MAX_TASKS, MAX_SLAVES
 
     parts = decoded_data.split('|')
-    # Format: ADMIN|SUBCOMMAND|[valeur...]
     if len(parts) < 2:
         return "Erreur : commande ADMIN invalide."
 
@@ -118,6 +111,7 @@ def handle_admin_command(decoded_data):
             f"INFO:\n"
             f" - Tâches en cours: {current_tasks}\n"
             f" - MAX_TASKS: {MAX_TASKS}\n"
+            f" - MAX_SLAVES: {MAX_SLAVES}\n"
             f" - Nombre d'esclaves actifs: {len(SLAVE_SERVERS)}\n"
         )
         return info
@@ -134,16 +128,24 @@ def handle_admin_command(decoded_data):
         except ValueError:
             return "Erreur : valeur SET_MAX_TASKS invalide (entier attendu)."
 
+    elif subcommand == "SET_MAX_SLAVES":
+        if len(parts) < 3:
+            return "Erreur : valeur SET_MAX_SLAVES manquante."
+        try:
+            new_max_slaves = int(parts[2])
+            if new_max_slaves < 0:
+                return "Erreur : la valeur de MAX_SLAVES doit être >= 0."
+            MAX_SLAVES = new_max_slaves
+            return f"OK: MAX_SLAVES est maintenant {MAX_SLAVES}."
+        except ValueError:
+            return "Erreur : valeur SET_MAX_SLAVES invalide (entier attendu)."
+
     else:
         return f"Erreur : sous-commande ADMIN inconnue : {subcommand}"
 
-
 def maybe_launch_new_slave():
-    """
-    Tente de lancer un nouvel esclave si :
-     - On n'a pas déjà atteint MAX_SLAVES
-     - On dispose encore d'un port libre dans SLAVE_PORTS
-    """
+    global MAX_SLAVES
+
     if len(SLAVE_PROCESSES) >= MAX_SLAVES:
         return
 
@@ -159,31 +161,25 @@ def maybe_launch_new_slave():
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
-    time.sleep(1)  # Laisser l'esclave démarrer
+    time.sleep(1)
 
     SLAVE_PROCESSES.append(proc)
     SLAVE_SERVERS.append(("127.0.0.1", new_port))
 
     print(f"[LANCEMENT ESCLAVE] Nouveau serveur esclave lancé sur le port {new_port}.")
 
-
 def delegate_to_slave(language, filename, code_source):
-    """
-    Envoie la requête à un esclave (ici le premier de la liste).
-    Retourne la réponse.
-    """
     if not SLAVE_SERVERS:
         return "Erreur : aucun serveur esclave disponible.\n"
 
     slave_ip, slave_port = SLAVE_SERVERS[0]
-    # Round-robin possible : on pourrait faire .pop(0) / .append(...) etc.
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((slave_ip, slave_port))
             payload = f"{language}|{filename}|{code_source}"
             s.sendall(payload.encode('utf-8', errors='replace'))
-            
+
             result = []
             while True:
                 chunk = s.recv(4096)
@@ -194,11 +190,7 @@ def delegate_to_slave(language, filename, code_source):
     except Exception as e:
         return f"Erreur : impossible de contacter l'esclave {slave_ip}:{slave_port}. {str(e)}\n"
 
-
 def compile_and_run(language, filename, code):
-    """
-    Compile et exécute le code localement selon le langage.
-    """
     temp_dir = "temp_codes"
     os.makedirs(temp_dir, exist_ok=True)
 
@@ -242,17 +234,9 @@ def compile_and_run(language, filename, code):
     except Exception as e:
         return f"Erreur lors de l'execution : {str(e)}\n"
 
-
-##########################################
-#   Thread de monitoring pour KILL
-##########################################
 def load_monitor_thread():
-    """
-    Surveille la charge (current_tasks) toutes les 5 secondes.
-    Si elle reste <= KILL_THRESHOLD pendant >= KILL_GRACE_PERIOD, on tue un esclave.
-    (Logique naïve : on tue un esclave sans vérifier s'il est occupé)
-    """
     global last_time_low_load
+
     while True:
         time.sleep(5)
         with tasks_lock:
@@ -267,16 +251,12 @@ def load_monitor_thread():
             else:
                 last_time_low_load = None
 
-
 def maybe_kill_one_slave():
-    """
-    Tuer le dernier esclave de la liste (naïf).
-    """
     if not SLAVE_PROCESSES or not SLAVE_SERVERS:
         return
 
-    proc = SLAVE_PROCESSES.pop()  # dernier process
-    ip, port = SLAVE_SERVERS.pop()  # dernier (ip, port)
+    proc = SLAVE_PROCESSES.pop()  # process
+    ip, port = SLAVE_SERVERS.pop()
 
     try:
         proc.terminate()
@@ -288,17 +268,12 @@ def maybe_kill_one_slave():
     except Exception as e:
         print(f"[ERREUR KILL ESCLAVE] Impossible de tuer l'esclave port {port}. {e}")
 
-
 def start_server(host="0.0.0.0", port=5000):
-    """
-    Lance le serveur maître + un thread de monitoring pour kill
-    """
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((host, port))
     server.listen(5)
     print(f"[SERVEUR MAÎTRE] En écoute sur {host}:{port} ...")
 
-    # Lancer le thread de monitoring
     monitor_thread = threading.Thread(target=load_monitor_thread, daemon=True)
     monitor_thread.start()
 
@@ -311,7 +286,6 @@ def start_server(host="0.0.0.0", port=5000):
             daemon=True
         )
         client_thread.start()
-
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
