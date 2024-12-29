@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import sys
 import socket
 import os
@@ -65,13 +62,12 @@ class ClientGUI(QMainWindow):
         self.resize(1200, 800)
 
         # =========================
-        #  Barre de menu (optionnel)
+        #  Barre de menu 
         # =========================
         menubar = QMenuBar(self)
         file_menu = QMenu("Fichier", self)
         menubar.addMenu(file_menu)
         self.setMenuBar(menubar)
-        # (Vous pouvez ajouter des actions de menu ici si vous le souhaitez)
 
         # =========================
         #  Paramètres de connexion et compilation
@@ -87,7 +83,7 @@ class ClientGUI(QMainWindow):
         self.lang_combo.addItems(["Python", "C", "C++", "Java"])
 
         self.file_label = QLabel("Nom du fichier :")
-        self.file_edit = QLineEdit("main.py")
+        self.file_edit = QLineEdit("exemple.py")
 
         self.import_code_button = QPushButton("Importer un fichier")
         self.import_code_button.clicked.connect(self.open_file_dialog)
