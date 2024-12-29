@@ -170,13 +170,16 @@ def maybe_launch_new_slave():
 
     new_port = free_ports[0]
 
-    print(f"[DEBUG] Tentative de lancement d'un esclave sur le port {new_port}...")
+    # Construction du chemin absolu pour server_esclave.py
+    slave_script_path = os.path.join(os.path.dirname(__file__), "server_esclave.py")
+
+    print(f"[DEBUG] Tentative de lancement d'un esclave sur le port {new_port} avec {slave_script_path}")
     proc = subprocess.Popen(
-        [sys.executable, "server_esclave.py", str(new_port)],
+        [sys.executable, slave_script_path, str(new_port)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
-    time.sleep(5)  # Augmenter le délai pour laisser l'esclave démarrer
+    time.sleep(2)  # Laisser l'esclave démarrer
 
     # Vérifier si le port est actif
     if is_port_active(new_port, "127.0.0.1"):
@@ -184,7 +187,6 @@ def maybe_launch_new_slave():
         SLAVE_SERVERS.append(("127.0.0.1", new_port))
         print(f"[LANCEMENT ESCLAVE] Nouveau serveur esclave lancé sur le port {new_port}.")
     else:
-        # Lire les erreurs du processus esclave
         stderr = proc.stderr.read().decode('utf-8')
         print(f"[ERREUR ESCLAVE] Impossible de lancer un esclave sur le port {new_port}. "
               f"Le port n'est pas actif après démarrage. Erreur: {stderr}")

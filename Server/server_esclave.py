@@ -48,50 +48,50 @@ def compile_and_run(language, filename, code):
     os.makedirs(temp_dir, exist_ok=True)
 
     filepath = os.path.join(temp_dir, filename)
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(code)
+    exe_file = os.path.splitext(filepath)[0] + ".exe"
 
     try:
-        if language.lower() in ["python", ".py"]:
-            cmd = [sys.executable, filepath]
-        elif language.lower() in ["c", ".c"]:
-            exe_file = os.path.splitext(filepath)[0] + ".exe"
+        # Supprimer l'ancien fichier exécutable s'il existe
+        if os.path.exists(exe_file):
+            os.remove(exe_file)
+
+        # Écrire le fichier source
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(code)
+        print(f"[DEBUG] Fichier source créé : {filepath}")
+    except Exception as e:
+        return f"Erreur : Impossible de créer le fichier source : {e}\n"
+
+    try:
+        # Compilation
+        if language.lower() in ["c", ".c"]:
             compile_proc = subprocess.run(["gcc", filepath, "-o", exe_file],
                                           capture_output=True, text=True)
             if compile_proc.returncode != 0:
-                print(f"[COMPILATION C] Erreur: {compile_proc.stderr}")
-                return f"Erreur de compilation C:\n{compile_proc.stderr}"
+                print(f"[COMPILATION C] Erreur : {compile_proc.stderr}")
+                return f"Erreur de compilation C :\n{compile_proc.stderr}"
             cmd = [exe_file]
         elif language.lower() in ["c++", "cpp", ".cpp"]:
-            exe_file = os.path.splitext(filepath)[0] + ".exe"
             compile_proc = subprocess.run(["g++", filepath, "-o", exe_file],
                                           capture_output=True, text=True)
             if compile_proc.returncode != 0:
-                print(f"[COMPILATION C++] Erreur: {compile_proc.stderr}")
-                return f"Erreur de compilation C++:\n{compile_proc.stderr}"
+                print(f"[COMPILATION C++] Erreur : {compile_proc.stderr}")
+                return f"Erreur de compilation C++ :\n{compile_proc.stderr}"
             cmd = [exe_file]
-        elif language.lower() in ["java", ".java"]:
-            compile_proc = subprocess.run(["javac", filepath],
-                                          capture_output=True, text=True)
-            if compile_proc.returncode != 0:
-                print(f"[COMPILATION Java] Erreur: {compile_proc.stderr}")
-                return f"Erreur de compilation Java:\n{compile_proc.stderr}"
-            class_file = os.path.splitext(os.path.basename(filepath))[0]
-            cmd = ["java", "-cp", temp_dir, class_file]
         else:
-            print(f"[COMPILATION] Langage non supporté: {language}")
             return "Langage non supporté ou inconnu.\n"
 
-        print(f"[EXECUTION] Commande: {' '.join(cmd)}")
+        # Exécution
+        print(f"[DEBUG] Commande d'exécution : {' '.join(cmd)}")
         exec_proc = subprocess.run(cmd, capture_output=True, text=True)
         output = f"Sortie:\n{exec_proc.stdout}\n"
         if exec_proc.stderr:
-            output += f"Erreurs:\n{exec_proc.stderr}\n"
+            output += f"Erreurs :\n{exec_proc.stderr}\n"
         return output
 
     except Exception as e:
-        print(f"[EXECUTION] Erreur: {e}")
-        return f"Erreur lors de l'execution : {str(e)}\n"
+        return f"Erreur lors de l'exécution : {e}\n"
+
 
 def start_slave_server(host="0.0.0.0", port=6001):
     try:
