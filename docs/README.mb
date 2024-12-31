@@ -19,14 +19,14 @@ Assurez-vous que les fichiers sont organisés comme suit :
 	SAE302/
 	|-- client/
 	|   |-- client.py
-        |-- Server/
+    |-- Server/
 	|   |-- server_maitre.py
 	|   |-- server_esclave.py
-        |   |-- temp_codes/
-        |-- Docs/
+    |   |-- temp_codes/
+    |-- Docs/
 	|   |-- requirements.txt
-        |   |-- video.txt
-        |   |-- README.mb
+    |   |-- video.txt
+    |   |-- README.mb
 
 2. Installation
 2.1 Cloner le projet
@@ -87,6 +87,4 @@ Vous pouvez remplacer 6001 par un autre port libre.
 	SET_MAX_TASKS : Permet de modifier le nombre maximum de tâches locales.
 	SET_MAX_SLAVES : Ajuste dynamiquement le nombre maximum d’esclaves autorisés.
 
-
-Cette documentation couvre les principales étapes pour installer, démarrer et tester le système. 
 
