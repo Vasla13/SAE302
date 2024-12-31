@@ -8,8 +8,8 @@ import time
 ##########################################
 # Paramètres de charge et de scaling
 ##########################################
-MAX_TASKS = 2
-MAX_SLAVES = 2
+MAX_TASKS = 5
+MAX_SLAVES = 5
 
 # Ports disponibles pour lancer des esclaves (adapter si conflit)
 SLAVE_PORTS = [6001, 6002, 6003, 6004, 6005]
@@ -53,7 +53,7 @@ def handle_client(client_socket, client_address):
 
         decoded_data = data.decode('utf-8', errors='replace')
 
-        # Commande d'administration ?
+        # Commande d'administration 
         if decoded_data.startswith("ADMIN|"):
             response = handle_admin_command(decoded_data)
             client_socket.sendall(response.encode('utf-8', errors='replace'))
@@ -289,7 +289,7 @@ def load_monitor_thread():
 
 def maybe_kill_one_slave():
     """
-    Tue le dernier esclave de la liste (approche naïve).
+    Tue le dernier esclave de la liste.
     """
     if not SLAVE_PROCESSES or not SLAVE_SERVERS:
         return

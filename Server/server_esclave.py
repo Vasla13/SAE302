@@ -41,8 +41,7 @@ def handle_slave_client(client_socket, client_address):
 
 def compile_and_run(language, filename, code):
     """
-    Compile et exécute le code selon le langage spécifié,
-    similaire au serveur maître.
+    Compile et exécute le code selon le langage spécifié.
     """
     temp_dir = "temp_codes_slave"
     os.makedirs(temp_dir, exist_ok=True)

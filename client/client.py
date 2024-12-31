@@ -377,9 +377,6 @@ class ClientGUI(QMainWindow):
                 except Exception as e:
                     QMessageBox.critical(self, "Erreur", f"Impossible d'enregistrer le fichier:\n{str(e)}")
 
-    # ======================================================
-    #   Divers
-    # ======================================================
     def clear_result(self):
         """Vider la zone de sortie."""
         self.result_edit.clear()
