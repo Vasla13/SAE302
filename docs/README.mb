@@ -2,7 +2,7 @@ Documentation d’Installation et d’Utilisation
 
 1. Prérequis
 Avant de procéder à l’installation, assurez-vous que les conditions suivantes sont remplies :
-1.	Système d’exploitation :
+	Système d’exploitation :
 	Windows 10/11 (64 bits)
 	Linux (testé sur Ubuntu 20.04 ou versions ultérieures)
 2.	Python :
@@ -19,14 +19,14 @@ Assurez-vous que les fichiers sont organisés comme suit :
 	SAE302/
 	|-- client/
 	|   |-- client.py
-    |-- Server/
+        |-- Server/
 	|   |-- server_maitre.py
 	|   |-- server_esclave.py
-    |   |-- temp_codes/
-    |-- Docs/
+        |   |-- temp_codes/
+        |-- Docs/
 	|   |-- requirements.txt
-    |   |-- video.txt
-    |   |-- README.mb
+        |   |-- video.txt
+        |   |-- README.mb
 
 2. Installation
 2.1 Cloner le projet
