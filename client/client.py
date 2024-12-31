@@ -91,6 +91,15 @@ class ClientGUI(QMainWindow):
         self.save_code_button = QPushButton("Enregistrer le code")
         self.save_code_button.clicked.connect(self.save_file_dialog)
 
+        # Indicateur de connexion
+        self.connection_status_label = QLabel("Statut :")
+        self.connection_status_indicator = QLabel()
+        self.connection_status_indicator.setFixedSize(20, 20)
+        self.connection_status_indicator.setStyleSheet("background-color: red; border-radius: 10px;")
+
+        self.test_connection_button = QPushButton("Tester la connexion")
+        self.test_connection_button.clicked.connect(self.test_connection)
+
         # GroupBox Paramètres
         top_groupbox = QGroupBox("Paramètres de connexion et compilation")
         top_layout = QGridLayout()
@@ -107,6 +116,10 @@ class ClientGUI(QMainWindow):
 
         top_layout.addWidget(self.import_code_button, 2, 0, 1, 2)
         top_layout.addWidget(self.save_code_button,    2, 2, 1, 2)
+
+        top_layout.addWidget(self.connection_status_label, 3, 0)
+        top_layout.addWidget(self.connection_status_indicator, 3, 1)
+        top_layout.addWidget(self.test_connection_button, 3, 2, 1, 2)
 
         top_groupbox.setLayout(top_layout)
 
@@ -213,6 +226,24 @@ class ClientGUI(QMainWindow):
 
         # Code par défaut
         self.code_edit.setPlainText("# Écrivez votre code Python ici...\nprint('Hello World!')")
+
+    # ======================================================
+    #   Méthodes : Tester la connexion
+    # ======================================================
+    def test_connection(self):
+        """Tester la connexion au serveur et mettre à jour l'indicateur de statut."""
+        server_ip = self.ip_edit.text().strip()
+        server_port = int(self.port_edit.text().strip())
+
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(5)  # Timeout de 5 secondes
+                s.connect((server_ip, server_port))
+                self.connection_status_indicator.setStyleSheet("background-color: green; border-radius: 10px;")
+                QMessageBox.information(self, "Connexion réussie", "La connexion au serveur a été établie avec succès.")
+        except Exception as e:
+            self.connection_status_indicator.setStyleSheet("background-color: red; border-radius: 10px;")
+            QMessageBox.critical(self, "Erreur de connexion", f"Impossible de se connecter au serveur :\n{str(e)}")
 
     # ======================================================
     #   Méthodes : Exécuter code

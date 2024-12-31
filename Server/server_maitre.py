@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import socket
 import threading
 import subprocess
@@ -11,8 +8,8 @@ import time
 ##########################################
 # Paramètres de charge et de scaling
 ##########################################
-MAX_TASKS = 3
-MAX_SLAVES = 5
+MAX_TASKS = 2
+MAX_SLAVES = 2
 
 # Ports disponibles pour lancer des esclaves (adapter si conflit)
 SLAVE_PORTS = [6001, 6002, 6003, 6004, 6005]
