@@ -2,7 +2,7 @@ Documentation d’Installation et d’Utilisation
 
 1. Prérequis
 Avant de procéder à l’installation, assurez-vous que les conditions suivantes sont remplies :
-1.	Système d’exploitation :
+	Système d’exploitation :
 	Windows 10/11 (64 bits)
 	Linux (testé sur Ubuntu 20.04 ou versions ultérieures)
 2.	Python :
