@@ -30,7 +30,7 @@ Assurez-vous que les fichiers sont organisés comme suit :
 
 2. Installation
 2.1 Cloner le projet
-	Clonez le répertoire depuis le dépôt GitHub ou transférez les fichiers via un autre moyen.
+	Clonez le répertoire depuis le dépôt GitHub.
 	git clone https://github.com/Vasla13/SAE302.git
 	cd SAE302
 	Installez les dépendances Python nécessaires :
@@ -46,7 +46,6 @@ Assurez-vous que les fichiers sont organisés comme suit :
 	Sur Windows : clic droit sur le dossier > Propriétés > Sécurité.
 	Sur Linux : 
 	chmod -R 755 temp_codes
-
 
 3. Démarrage des Serveurs
 3.1 Serveur Maître
