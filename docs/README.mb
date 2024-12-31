@@ -1,5 +1,5 @@
 Documentation d’Installation et d’Utilisation
-________________________________________
+
 1. Prérequis
 Avant de procéder à l’installation, assurez-vous que les conditions suivantes sont remplies :
 1.	Système d’exploitation :
@@ -10,12 +10,11 @@ Avant de procéder à l’installation, assurez-vous que les conditions suivante
 	Disponible sur Python.org.
 3.	TDM-GCC (pour la compilation C/C++) :
 	Disponible sur TDM-GCC.
-4.	PyQt6 :
-	Installé via pip (à l’aide de la commande ci-dessous).
+4.	Java :
+	Installé sur le site de java JDK 23
 5.	Autres dépendances Python :
-pip install PyQt6
 	pip install -r requirements.txt (le fichier sera fourni avec le projet).
-6.	Structure des fichiers :
+6.	Structure des fichiers : (Pour l'etape 2.1)
 Assurez-vous que les fichiers sont organisés comme suit : 
 	SAE302/
 	|-- client/
@@ -23,9 +22,12 @@ Assurez-vous que les fichiers sont organisés comme suit :
     |-- Server/
 	|   |-- server_maitre.py
 	|   |-- server_esclave.py
-	|-- temp_codes/
-	|-- requirements.txt
-________________________________________
+    |   |-- temp_codes/
+    |-- Docs/
+	|   |-- requirements.txt
+    |   |-- video.txt
+    |   |-- README.mb
+
 2. Installation
 2.1 Cloner le projet
 	Clonez le répertoire depuis le dépôt GitHub ou transférez les fichiers via un autre moyen.
@@ -44,7 +46,8 @@ ________________________________________
 	Sur Windows : clic droit sur le dossier > Propriétés > Sécurité.
 	Sur Linux : 
 	chmod -R 755 temp_codes
-________________________________________
+
+
 3. Démarrage des Serveurs
 3.1 Serveur Maître
 	Accédez au dossier Server : 
@@ -57,7 +60,8 @@ Le serveur maître lance automatiquement les serveurs esclaves en fonction des b
 	Toujours dans le dossier Server, exécutez : 
 	python server_esclave.py 6001
 Vous pouvez remplacer 6001 par un autre port libre.
-________________________________________
+
+
 4. Démarrage du Client
 	Accédez au dossier client : 
 	cd client
@@ -67,7 +71,8 @@ ________________________________________
     IP du serveur : 127.0.0.1 (ou l’adresse IP du serveur maître).
 	Port : 5000 (par défaut).
 	Importez ou écrivez un programme dans l’interface, choisissez le langage et cliquez sur Exécuter le code.
-________________________________________
+
+
 5. Tests de Fonctionnement
 5.1 Test de Soumission de Code
 	Depuis le client, soumettez un programme Python simple, tel que : 
@@ -82,6 +87,7 @@ ________________________________________
 	GET_INFO : Affiche l’état actuel du système (tâches en cours, esclaves actifs).
 	SET_MAX_TASKS : Permet de modifier le nombre maximum de tâches locales.
 	SET_MAX_SLAVES : Ajuste dynamiquement le nombre maximum d’esclaves autorisés.
-________________________________________
+
+
 Cette documentation couvre les principales étapes pour installer, démarrer et tester le système. 
 
