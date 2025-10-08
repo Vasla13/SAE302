@@ -264,6 +264,7 @@ class ClientGUI(QMainWindow):
 
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(10)  # évite de se bloquer
                 s.connect((server_ip, server_port))
                 s.sendall(payload.encode('utf-8'))
 
@@ -284,7 +285,7 @@ class ClientGUI(QMainWindow):
     # ======================================================
     def get_server_info(self):
         """
-        Envoie ADMIN|GET_INFO pour connaître la charge (current_tasks), MAX_TASKS, MAX_SLAVES, nb d'esclaves
+        Envoie ADMIN|GET_INFO (avec TOKEN si présent en variable d'env) pour connaître la charge
         """
         resp = self.send_admin_command("GET_INFO")
         self.result_edit.setPlainText(resp)
@@ -317,15 +318,21 @@ class ClientGUI(QMainWindow):
 
     def send_admin_command(self, subcommand):
         """
-        Envoie une commande ADMIN : ADMIN|<subcommand>[|param...]
-        ex: ADMIN|GET_INFO, ADMIN|SET_MAX_TASKS|5, ADMIN|SET_MAX_SLAVES|3
+        Envoie une commande ADMIN : ADMIN|[TOKEN=xxx|]<subcommand>[|param...]
+        - Si la variable d'env ADMIN_TOKEN est définie côté client, on l'ajoute automatiquement.
         """
         server_ip = self.ip_edit.text().strip()
         server_port = int(self.port_edit.text().strip())
 
-        payload = f"ADMIN|{subcommand}"
+        token = os.environ.get("ADMIN_TOKEN", "").strip()
+        if token:
+            payload = f"ADMIN|TOKEN={token}|{subcommand}"
+        else:
+            payload = f"ADMIN|{subcommand}"
+
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(10)
                 s.connect((server_ip, server_port))
                 s.sendall(payload.encode('utf-8'))
 
